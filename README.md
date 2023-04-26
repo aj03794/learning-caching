@@ -1,6 +1,7 @@
 # Caching
 
 - https://blog.bytebytego.com/p/a-crash-course-in-caching-part-1
+- https://blog.bytebytego.com/p/a-crash-course-in-caching-part-2
 
 ## Intro
 
@@ -160,3 +161,147 @@
 - App sets a lifetime for the cached data, and the data is removed or marked as invalid once the 
   TTL expires
 - Popular option
+
+## Distributed Caching
+
+- Cached data is partitioned across many nodes, each node only storing a portion of the cached data
+
+### Modulus Sharding
+
+- This strategy is simple but can result in many cache misses when the number of shards is 
+  increased or decreased 
+  - This is because most of the keys will be redistributed to different shards when the pool is 
+    resized
+
+![](./images/img_6.png)
+
+### Range-based Sharding
+
+- Can be useful where data is naturally grouped or partitioned in specific ranges, such as 
+  geolocation-based data or data related to specific customer segments
+- Challenging to scale since number of shards is predefined and cannot be easily changed
+- Changing number of shards requires redefining the key ranges and remapping the data
+
+![](./images/img_7.png)
+
+### Consistent Hashing
+
+- What Cassandra uses
+- Widely used
+- Better load balance and fault tolerance
+
+![](./images/img_8.png)
+
+## Cache Strategies
+
+- Cache strategies can be classified by the way they handle reading or writing data:
+  - Read Strategies: Cache-Aside and Read-Through
+  - Write Strategies: Write-Around, Write-Through, and Write-Back
+
+### Read Strategies
+
+#### Cache-aside
+
+- Aka lazy loading
+- App directly communicates with both cache and storage systems
+- Works well for read-heavy workloads
+
+![](./images/img_9.png)
+
+- Pros
+  - Can tolerate cache failures because app can still read from storage
+  - Data model in cache can differ from that in storage - provides additional flexibility
+- Cons
+  - App must manage both cache and storage
+  - Ensuring data consistency is challenging due to lack of atomic operations on cache and storage
+- Important to other data consistency issues as well
+  - If a piece of data is written to the cache, and the value in the storage is updated 
+    afterward, the app can only read the stale value from the cache until it is evicted
+  - One solution is to set an acceptable TTL
+  - For more stringent data freshness requirements, can combine cache-aside with one of write 
+    strategies discussed further down
+
+#### Read-through
+
+- Cache serves as intermediary between app and storage system
+- Cache handles all read requests
+- Cache is responsible with keeping itself in sync with storage
+
+![](./images/img_10.png)
+
+- Pros
+  - App only needs to read from cache
+- Cache
+  - System cannot tolerate cache failures
+  - Cache and storage system must share the same data model
+- Data consistency can pose challenges
+  - If the data in the storage is updated after being cached, inconsistencies can happen
+  - Again, to solve this, can use one of the write strategies to ensure data consistency
+
+### Write Strategies
+
+#### Write-around
+
+- Caching strategy for managing data writes
+- Often combined with cache-aside or read-through strategies
+
+![](./images/img_11.png)
+
+- Pros
+  - Intuitive and simple, effectively decouples cache and storage system
+- Cache
+  - If data is written once and then read again, the storage system will be accessed twice
+  - When data is frequently updated and red, the storage system is accessed multiple times, 
+    rendering cache operations less effective
+
+#### Write-through
+
+- Cache is responsible for writing data to storage and updating the cache accordingly
+- Often combined with red-through to provide a consistent caching solution
+- Well suited for situations where data is written once and read multiple times
+
+![](./images/img_12.png)
+
+- Pros
+  - App only needs to write data to cache, simplifying the process and reducing complexity
+  - Because data is first written to the cache, all read operations from the cache retrieve the 
+    most recent data, making this strategy ideal for scenarios where data is written once and 
+    reda multiple times
+- Cons
+  - Introduces write latency because operation is done on both cache and storage
+  - If data is successfully written to the storage, but not updated in the cache, the cached 
+    data becomes stale
+    - Cache must first invalidate the key, then request to write the data to storage, and 
+      finally update the cache only if the write operation succeeds
+      - Ensures data will either be updated or invalidated
+
+#### Write-back
+
+- Write operations to the storage system are both async
+- Often combined with read-through
+- Some caches,such as Redis, use a write-back strategy for periodic persistence to an 
+  append-only file (AOF)
+
+![](./images/img_13.png)
+
+- Pros
+  - Offers lower latency compared to write-through, better performance for write operations
+  - Strategy reduces overall number of writes to the storage system and provides resilience to 
+    storage failures
+- Cons
+  - There may be a temporary data inconsistency between cache and storage systems - tradeoff for 
+    better availability
+  - If cache fails before writing data to storage, the latest updated records may be lost, which 
+    is not acceptable in some scenarios
+    - To mitigate the risk of data loss due to cache failures, cache systems can persist write 
+      operations on the cache side
+
+### Cache Strategy Combinations
+
+- Popular combinations
+  - Cache-aside & write-around
+  - Read-through & write-through
+  - Read-through & write-back
+- Less common combinations
+  - Read-through & write-around
+  - Cache-aside & write-through

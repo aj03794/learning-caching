@@ -257,7 +257,7 @@
 #### Write-through
 
 - Cache is responsible for writing data to storage and updating the cache accordingly
-- Often combined with red-through to provide a consistent caching solution
+- Often combined with read-through to provide a consistent caching solution
 - Well suited for situations where data is written once and read multiple times
 
 ![](./images/img_12.png)
